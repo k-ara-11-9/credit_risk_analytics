@@ -1,155 +1,220 @@
-# Credit Risk Analytics
+# Credit Risk Analytics: Time-Aware Loan Default Prediction
 
-A machine learning project that predicts loan default risk using LendingClub's accepted-loan dataset (2007–2018 Q4). The project explores borrower financial and credit characteristics, engineers useful features, and compares classification models to understand how well they identify potential defaults.
+## Project Overview
 
-## Project Objective
+This project investigates whether borrower characteristics, loan attributes, and historical macroeconomic conditions can help predict loan default.
 
-**Research question:** Can a machine learning model predict the likelihood of loan default using borrower financial and credit characteristics?
+It examines how default patterns differ across loan origination vintages and whether models trained on earlier periods generalize to later loan cohorts.
 
-The project uses historical loan data to build and evaluate predictive models. Its focus is on identifying potential default risk, not automatically approving or rejecting loan applications.
+The project emphasizes chronological validation and evaluates whether macroeconomic indicators provide incremental predictive information beyond borrower and loan characteristics.
 
-**Analytics type:** Predictive Analytics
+## Research Questions
+
+1. Can borrower financial and credit characteristics predict observed loan default?
+2. Do default patterns differ across origination years, loan terms, and borrower segments?
+3. How well do models trained on earlier loan vintages generalize to later vintages?
+4. Do historical macroeconomic indicators improve predictive performance beyond borrower and loan characteristics?
 
 ## Dataset
 
-**Source:** [LendingClub dataset on Kaggle](https://www.kaggle.com/datasets/wordsforthewise/lending-club)
+**Source:** LendingClub accepted-loan dataset, obtained through Kaggle.
 
-This project uses the `accepted_2007_to_2018Q4.csv` file. Rejected applications are not included.
+Dataset: [All Lending Club Loan Data](https://www.kaggle.com/datasets/wordsforthewise/lending-club)
 
-- The raw dataset contains approximately 2.26 million rows and 151 columns.
-- A reproducible random sample of 100,000 rows is used for analysis.
-- The target variable, `default`, is derived from resolved loan statuses:
-  - `1` — Charged Off or Default
-  - `0` — Fully Paid
-- Unresolved loan statuses are excluded from the modeling dataset.
+Raw file: `accepted_2007_to_2018Q4.csv`
 
-The dataset contains historical loans that LendingClub accepted. Therefore, the model's findings should not be assumed to generalize to rejected applicants or every lending population.
+Place the downloaded file at:
 
-**Data availability:** Dataset files are not stored in this repository. Download the source dataset and place the accepted-loan CSV in `data/raw/` before running the notebooks.
+`data/raw/accepted_2007_to_2018Q4.csv`
 
-## Project Structure
+The raw dataset is not included in this repository because of its size and source-data redistribution considerations.
+
+### Target Definition
+
+The binary target is constructed from resolved loan statuses:
+
+- `default = 1`: Charged Off, Default, and Does not meet the credit policy. Status:Charged Off.
+- `default = 0`: Fully Paid and Does not meet the credit policy. Status:Fully Paid.
+
+Unresolved statuses, including Current, Late, In Grace Period and Issued, are excluded.
+
+### Outcome Maturity Filtering
+
+Loans are grouped by origination year and loan term. Cohorts with at least 99.5% resolved loans are retained.
+
+This 99.5% threshold is an operational maturity-screening heuristic. It is not a verified dataset snapshot date or a fixed-horizon outcome definition.
+
+The resulting eligible population contains approximately 676,302 records. A reproducible 100,000-record benchmark sample is also retained.
+
+**Important limitation:** The target represents observed outcomes among resolved loans in selected cohorts. It does not represent a fully observed 36-month or 60-month default event for every loan. The results should therefore not be interpreted as definitive lifetime default probabilities.
+
+## Project Workflow
+
+### Notebook 1 — Data Quality and Vintage Analysis
+
+`notebooks/01_data_quality_and_vintage_analysis.ipynb`
+
+- Loads required columns from the raw LendingClub dataset.
+- Examines loan statuses and missingness.
+- Analyzes resolution rates by origination year and loan term.
+- Applies the 99.5% cohort-resolution rule.
+- Creates the full eligible population and a reproducible benchmark sample.
+
+Main outputs:
+
+- `data/processed/modeling_full.csv`
+- `data/processed/modeling_sample.csv`
+- Vintage and maturity diagnostic files under `outputs/`
+
+### Notebook 2 — Feature Engineering
+
+`notebooks/02_feature_engineering.ipynb`
+
+- Cleans numerical and categorical loan fields.
+- Converts interest rate, revolving utilization, loan term and employment length.
+- Creates average FICO score.
+- Creates income-to-loan and installment-to-income ratios.
+- Examines missing values and extreme observations.
+- Preserves metadata for temporal evaluation.
+
+Main outputs:
+
+- `data/processed/featured_data_full.csv`
+- `data/processed/featured_data.csv`
+- Feature-quality and term/year diagnostic files under `outputs/`
+
+Imputation, scaling and categorical encoding are performed inside modeling pipelines to avoid preprocessing leakage.
+
+### Notebook 3 — Modeling and Temporal Validation
+
+`notebooks/03_modeling_and_temporal_validation.ipynb`
+
+Three experiments are conducted:
+
+1. **Pooled experiment:** combines 36-month and 60-month loans, with loan term included as a predictor.
+2. **36-month experiment:** evaluates 36-month loans separately.
+3. **60-month experiment:** evaluates 60-month loans separately.
+
+The notebook compares:
+
+- Logistic Regression
+- Logistic Regression with origination-time features
+- Random Forest
+- Histogram Gradient Boosting
+
+Expanding-window chronological validation is used. Each test vintage is later than its training and validation periods.
+
+Model selection and threshold tuning use validation data. Final test data is reserved for evaluation.
+
+Evaluation includes average precision, ROC-AUC, precision, recall, F1-score, Brier score, calibration, and performance by year and borrower/loan segment.
+
+### Notebook 4 — Macroeconomic Features and Incremental Predictive Value
+
+`notebooks/04_macroeconomic_features_and_incremental_value.ipynb`
+
+This notebook investigates whether economic conditions around loan origination improve predictive performance.
+
+Historical indicators are retrieved from the Federal Reserve Economic Data (FRED) service:
+
+- US unemployment rate
+- CPI year-over-year inflation
+- Effective federal funds rate
+- Three-month unemployment-rate change
+- Three-month federal-funds-rate change
+
+A conservative two-month lag is used when joining monthly indicators to loan origination months.
+
+Two otherwise comparable conditions are evaluated:
+
+- Baseline borrower and loan features
+- Baseline features plus macroeconomic indicators
+
+Both conditions use identical chronological test folds and validation-based model selection.
+
+The notebook also includes probability calibration and validation-selected operating thresholds targeting 70% recall.
+
+## Macroeconomic Experiment Results
+
+The following results are from the latest executed Notebook 4. They are aggregate results across four chronological test vintages (2012–2015), representing 633,767 out-of-time predictions per condition.
+
+| Metric | Baseline | Baseline + Macro |
+|---|---:|---:|
+| Average Precision | 0.2487 | 0.2519 |
+| ROC-AUC | 0.6702 | 0.6744 |
+| Brier Score | 0.1210 | 0.1205 |
+| Default Precision at selected threshold | 22.58% | 22.14% |
+| Default Recall at selected threshold | 62.99% | 66.67% |
+| Predicted Default Rate at selected threshold | 41.42% | 44.72% |
+
+The macro-enhanced condition produces modest improvements in average precision, ROC-AUC and Brier score.
+
+These results suggest that macroeconomic indicators provide some incremental predictive information, but do not substantially transform overall model discrimination.
+
+The 70% recall target is selected using validation data. Achieved test recall is lower, demonstrating that validation performance does not necessarily transfer perfectly to later vintages.
+
+A probability threshold of 0.50 produces very few positive classifications in this experiment and should not be presented as a useful default-screening policy.
+
+## Methodological Considerations and Limitations
+
+1. **Resolved outcomes:** Unresolved loans are excluded. The outcome-maturity filter is a heuristic and does not create a fixed-horizon default target.
+2. **Temporal generalization:** Chronological evaluation is more realistic than random splitting for later-vintage testing, but does not guarantee performance on present-day lending.
+3. **Prediction timing:** Grade, sub-grade and interest rate are included as predictors. The intended prediction point is after these underwriting attributes have been assigned.
+4. **Macroeconomic data revisions:** Current FRED historical values may differ from values originally published at the time. The two-month lag addresses publication timing conservatively but does not eliminate historical revision bias.
+5. **Association, not causation:** Differences across years, grades, purposes and economic conditions are predictive associations, not evidence of causal effects.
+6. **Decision thresholds:** Threshold selection depends on the intended business costs of false positives and false negatives. A recall-oriented threshold can produce many false-positive classifications.
+
+## Installation and Reproducibility
+
+Use Python 3.10 or newer.
+
+From the project root, run:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+jupyter notebook
+```
+
+Place the raw LendingClub CSV at:
+
+`data/raw/accepted_2007_to_2018Q4.csv`
+
+Run the notebooks in this order:
+
+1. `01_data_quality_and_vintage_analysis.ipynb`
+2. `02_feature_engineering.ipynb`
+3. `03_modeling_and_temporal_validation.ipynb`
+4. `04_macroeconomic_features_and_incremental_value.ipynb`
+
+Notebook 4 requires an internet connection to retrieve historical FRED data.
+
+Generated processed datasets and evaluation outputs are stored under `data/processed/` and `outputs/`. These generated files are excluded from Git.
+
+## Repository Structure
 
 ```text
 credit_risk_analytics/
 ├── data/
-│   ├── raw/                  # Source dataset (not tracked)
-│   └── processed/            # Generated datasets (not tracked)
+│   ├── raw/
+│   └── processed/
 ├── notebooks/
-│   ├── 01_eda.ipynb
+│   ├── 01_data_quality_and_vintage_analysis.ipynb
 │   ├── 02_feature_engineering.ipynb
-│   └── 03_modeling.ipynb
+│   ├── 03_modeling_and_temporal_validation.ipynb
+│   └── 04_macroeconomic_features_and_incremental_value.ipynb
+├── outputs/
+├── report/
+├── README.md
 ├── requirements.txt
 ├── LICENSE
-└── README.md
+└── .gitignore
 ```
 
-## Workflow
+## License and Data Attribution
 
-### 1. Exploratory Data Analysis
+The project code is distributed under the MIT License.
 
-Notebook: `01_eda.ipynb`
+The LendingClub dataset remains subject to its source provider's terms and conditions. The MIT License does not grant rights to redistribute the original dataset.
 
-- Load and sample the source dataset.
-- Remove identifiers, free-text fields, and columns that could leak information unavailable at prediction time.
-- Create the binary `default` target from resolved loan statuses.
-- Remove hardship and settlement-related columns.
-- Remove columns with more than 70% missing values.
-- Explore default rates across borrower and loan characteristics.
-- Export the cleaned dataset to `data/processed/cleaned_data.csv`.
-
-### 2. Feature Engineering
-
-Notebook: `02_feature_engineering.ipynb`
-
-- Create `fico_avg` from the two FICO score range columns.
-- Create `income_to_loan` and `installment_to_income` ratios.
-- Clean fields such as interest rate, revolving utilization, loan term, and employment length.
-- Separate the features (`X`) from the target (`y`).
-- Save the engineered dataset to `data/processed/featured_data.csv`.
-
-Missing-value imputation, categorical encoding, and numerical scaling are handled within the modeling pipeline so that preprocessing is fitted on training data rather than the entire dataset.
-
-### 3. Model Training and Evaluation
-
-Notebook: `03_modeling.ipynb`
-
-Two classification models are compared:
-
-- **Logistic Regression** — a baseline classification model.
-- **Random Forest** — an ensemble model that combines multiple decision trees.
-
-The dataset is divided into training and test sets using stratified sampling. Models are evaluated using accuracy, precision, recall, F1-score, ROC-AUC, classification reports, and confusion matrices.
-
-### 4. Threshold Tuning
-
-The Logistic Regression model is also evaluated using a lower classification threshold selected on a validation set to target at least 80% recall.
-
-Lowering the threshold can identify more potential defaults, but it can also increase false positives. The tuned-threshold results are reported separately from the original model comparison.
-
-## Results
-
-The following results were obtained from the current experiment on the held-out test set.
-
-| Metric | Logistic Regression (baseline threshold) | Random Forest (baseline threshold) | Logistic Regression (tuned threshold) |
-|---|---:|---:|---:|
-| Accuracy | 63.10% | 79.93% | 55.15% |
-| Precision | 31.06% | 51.49% | 28.30% |
-| Recall | 68.33% | 5.14% | 80.08% |
-| F1-score | 42.71% | 9.35% | 41.82% |
-| ROC-AUC | 0.7071 | 0.6920 | 0.7071 |
-
-### Interpretation
-
-- Random Forest has the highest accuracy among the original model comparisons, but its recall for defaults is very low.
-- Logistic Regression identifies a substantially larger proportion of actual defaults.
-- Threshold tuning increases Logistic Regression's recall to approximately 80%, at the cost of lower accuracy and precision.
-- The tuned threshold does not improve ROC-AUC because it changes the classification cutoff rather than the model's probability ranking.
-
-These results illustrate why accuracy alone is insufficient when the target classes are imbalanced. The preferred model and threshold depend on the relative costs of missed defaults and false alarms.
-
-## Setup and Usage
-
-### Requirements
-
-- Python 3
-- Jupyter Notebook or a compatible VS Code notebook environment
-- Packages listed in `requirements.txt`
-
-Install the dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-### Run the notebooks
-
-1. Download the accepted-loan dataset from Kaggle.
-2. Place `accepted_2007_to_2018Q4.csv` in `data/raw/`.
-3. Run `01_eda.ipynb` from top to bottom.
-4. Run `02_feature_engineering.ipynb` from top to bottom.
-5. Run `03_modeling.ipynb` from top to bottom.
-
-The notebooks generate intermediate CSV files in `data/processed/`. These files are excluded from version control and must be regenerated locally.
-
-## Limitations
-
-- The analysis uses a 100,000-row sample rather than the entire source dataset.
-- Historical LendingClub loans may not represent future lending populations.
-- The target is based on resolved loan outcomes; unresolved statuses are excluded.
-- Threshold selection involves a trade-off between identifying defaults and incorrectly flagging non-defaulting loans.
-- The model is a predictive risk-assessment experiment, not a validated production lending system.
-- The results do not establish that any borrower characteristic causes default.
-
-## Future Improvements
-
-- Tune model hyperparameters and compare additional classifiers.
-- Evaluate precision-recall curves and probability calibration.
-- Investigate feature importance and model interpretability.
-- Assess performance across different borrower groups and data samples.
-- Explore how predicted risk could support lending decisions, subject to appropriate validation and business rules.
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
-
-The dataset remains subject to its original source terms.
+Historical macroeconomic indicators are sourced from the Federal Reserve Economic Data (FRED) service.
